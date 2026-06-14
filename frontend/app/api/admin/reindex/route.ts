@@ -53,7 +53,7 @@ export async function POST(req: Request) {
           resourceId: resource.id,
           productId: resource.productId,
           url: resource.url,
-          pages: ingest.pages,
+          pages: ingest.units,
           chunks: ingest.chunks,
           indexed: ingest.indexed,
         });

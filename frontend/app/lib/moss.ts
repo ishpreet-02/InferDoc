@@ -8,10 +8,16 @@ export type MossDoc = {
   id: string;
   text: string;
   score: number | null;
+  // The sidecar stringifies all metadata values, so numbers (page/startSec)
+  // arrive as strings — callers coerce as needed.
   metadata: {
     resourceId?: string;
     resourceTitle?: string;
-    page?: number;
+    kind?: string;
+    page?: number | string;
+    startSec?: number | string;
+    endSec?: number | string;
+    url?: string;
     [k: string]: unknown;
   };
 };

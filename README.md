@@ -18,13 +18,21 @@ that powers diagnosis also drives "what does my scooter need next."
 
 ## Screenshots
 
-| Catalog & Search | Product Detail |
+| Landing Page | Catalog |
 |---|---|
-| ![](images/Screenshot%202026-06-14%20174429.png) | ![](images/Screenshot%202026-06-14%20174445.png) |
+| ![](images/Screenshot%202026-06-15%20024821.png) | ![](images/Screenshot%202026-06-15%20024827.png) |
 
-| Diagnostic Chat | My Products Garage |
+| Product Detail | My Products |
 |---|---|
-| ![](images/Screenshot%202026-06-14%20174455.png) | ![](images/Screenshot%202026-06-14%20174702.png) |
+| ![](images/Screenshot%202026-06-15%20024836.png) | ![](images/Screenshot%202026-06-15%20024842.png) |
+
+| Maintenance Log | Company Dashboard |
+|---|---|
+| ![](images/Screenshot%202026-06-15%20024846.png) | ![](images/Screenshot%202026-06-15%20024852.png) |
+
+| Add to My Products | Diagnostic Chat |
+|---|---|
+| ![](images/Screenshot%202026-06-15%20024914.png) | ![](images/Screenshot%202026-06-15%20024947.png) |
 
 ---
 

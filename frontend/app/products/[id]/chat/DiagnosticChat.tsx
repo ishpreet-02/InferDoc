@@ -442,7 +442,7 @@ function Citations({ citations }: { citations: NonNullable<Readout["citations"]>
           <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
         <span className="underline decoration-dotted underline-offset-2">
-          {citations.length} source{citations.length === 1 ? "" : "s"} from the manual
+          {citations.length} cited source{citations.length === 1 ? "" : "s"}
         </span>
       </button>
 
@@ -460,10 +460,25 @@ function Citations({ citations }: { citations: NonNullable<Readout["citations"]>
                 <span className="truncate text-xs font-semibold text-zinc-800 dark:text-zinc-200">
                   {c.resourceTitle}
                 </span>
-                {c.page != null && (
+                {c.kind === "VIDEO" && c.url ? (
+                  <a
+                    href={`${c.url}#t=${c.startSec ?? 0}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 rounded border border-indigo-300 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-50 dark:border-indigo-700 dark:text-indigo-300 dark:hover:bg-indigo-950"
+                  >
+                    ▶ {c.locator ?? "video"}
+                  </a>
+                ) : c.kind === "IMAGE" ? (
                   <span className="rounded border border-zinc-300 px-1.5 py-0.5 font-mono text-[10px] text-zinc-500 dark:border-zinc-700">
-                    p.{c.page}
+                    🖼 image
                   </span>
+                ) : (
+                  (c.locator ?? (c.page != null ? `p.${c.page}` : null)) && (
+                    <span className="rounded border border-zinc-300 px-1.5 py-0.5 font-mono text-[10px] text-zinc-500 dark:border-zinc-700">
+                      {c.locator ?? `p.${c.page}`}
+                    </span>
+                  )
                 )}
                 {c.score != null && (
                   <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums text-zinc-400">
@@ -471,9 +486,23 @@ function Citations({ citations }: { citations: NonNullable<Readout["citations"]>
                   </span>
                 )}
               </div>
-              <p className="line-clamp-4 px-3 py-2 text-xs italic leading-relaxed text-zinc-500 dark:text-zinc-400">
-                “{c.excerpt}”
-              </p>
+              {c.kind === "IMAGE" && c.url ? (
+                <a href={c.url} target="_blank" rel="noopener noreferrer" className="block">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={c.url}
+                    alt={c.resourceTitle}
+                    className="max-h-48 w-full object-contain bg-zinc-100 dark:bg-zinc-950"
+                  />
+                  <p className="line-clamp-2 px-3 py-2 text-xs italic leading-relaxed text-zinc-500 dark:text-zinc-400">
+                    “{c.excerpt}”
+                  </p>
+                </a>
+              ) : (
+                <p className="line-clamp-4 px-3 py-2 text-xs italic leading-relaxed text-zinc-500 dark:text-zinc-400">
+                  “{c.excerpt}”
+                </p>
+              )}
             </div>
           ))}
         </div>

@@ -72,7 +72,17 @@ export function uploadPdfToCloudinary(bytes: Uint8Array, publicId: string) {
   return upload(bytes, { resource_type: "raw", public_id: publicId });
 }
 
-/** Upload an image (chat troubleshooting photo). */
+/** Upload an image (chat troubleshooting photo, or a company reference image). */
 export function uploadImageToCloudinary(bytes: Uint8Array, publicId: string) {
   return upload(bytes, { resource_type: "image", public_id: publicId });
+}
+
+/** Upload a support video. */
+export function uploadVideoToCloudinary(bytes: Uint8Array, publicId: string) {
+  return upload(bytes, { resource_type: "video", public_id: publicId });
+}
+
+/** Upload an arbitrary raw file (e.g. a DOCX). `publicId` should include the ext. */
+export function uploadRawToCloudinary(bytes: Uint8Array, publicId: string) {
+  return upload(bytes, { resource_type: "raw", public_id: publicId });
 }

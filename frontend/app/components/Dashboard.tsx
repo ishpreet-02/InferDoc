@@ -90,20 +90,26 @@ export function Dashboard({ products }: { products: ProductOption[] }) {
   }
 
   // ---- upload resource ----
+  type ResType = "PDF" | "DOCX" | "IMAGE" | "VIDEO" | "LINK";
   const [rStatus, setRStatus] = useState<Status>({ kind: "idle" });
-  const [resType, setResType] = useState<"PDF" | "LINK">("PDF");
+  const [resType, setResType] = useState<ResType>("PDF");
   async function uploadResource(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget;
     const data = new FormData(form); // already multipart-ready (has the file)
-    setRStatus({ kind: "loading" });
+    setRStatus({
+      kind: "loading",
+      // surfaced via the button label below; banner stays hidden while loading
+    });
     try {
       const res = await fetch("/api/resources", { method: "POST", body: data });
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error ?? "request failed");
       const detail =
         json.indexed != null
-          ? ` Indexed ${json.indexed} chunk(s) across ${json.pages ?? "?"} page(s) into Moss.`
+          ? json.kind === "VIDEO"
+            ? ` Transcribed & indexed ${json.indexed} segment(s) into Moss.`
+            : ` Indexed ${json.indexed} chunk(s) into Moss.`
           : "";
       setRStatus({
         kind: "ok",
@@ -116,6 +122,14 @@ export function Dashboard({ products }: { products: ProductOption[] }) {
       setRStatus({ kind: "error", message: String(err) });
     }
   }
+
+  // file input `accept` per resource type
+  const ACCEPT: Record<Exclude<ResType, "LINK">, string> = {
+    PDF: "application/pdf",
+    DOCX: ".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    IMAGE: "image/*",
+    VIDEO: "video/*",
+  };
 
   return (
     <div className="space-y-8">
@@ -158,8 +172,8 @@ export function Dashboard({ products }: { products: ProductOption[] }) {
       <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <h2 className="text-lg font-semibold">Upload a resource</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Attach a PDF manual (extracted, chunked &amp; indexed into Moss) or
-          link an external resource.
+          Attach a manual (PDF/DOCX), a reference image, or a support video —
+          each is uploaded, indexed into Moss, and becomes a citable source.
         </p>
 
         {products.length === 0 ? (
@@ -191,27 +205,37 @@ export function Dashboard({ products }: { products: ProductOption[] }) {
                 name="type"
                 className={inputCls}
                 value={resType}
-                onChange={(e) => setResType(e.target.value as "PDF" | "LINK")}
+                onChange={(e) => setResType(e.target.value as ResType)}
               >
-                <option value="PDF">PDF (upload &amp; index)</option>
-                <option value="LINK">LINK (external URL)</option>
+                <option value="PDF">PDF manual (extract &amp; index)</option>
+                <option value="DOCX">DOCX manual (extract &amp; index)</option>
+                <option value="IMAGE">Image (diagram / error chart)</option>
+                <option value="VIDEO">Support video (transcribe &amp; index)</option>
+                <option value="LINK">Link (external URL)</option>
               </select>
             </div>
-            {resType === "PDF" ? (
-              <div>
-                <label className={labelCls}>PDF file *</label>
-                <input
-                  name="file"
-                  type="file"
-                  accept="application/pdf"
-                  required
-                  className="block w-full text-sm text-zinc-500 file:mr-3 file:rounded-md file:border-0 file:bg-indigo-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100 dark:file:bg-indigo-950 dark:file:text-indigo-300"
-                />
-              </div>
-            ) : (
+            {resType === "LINK" ? (
               <div>
                 <label className={labelCls}>URL *</label>
                 <input name="url" required className={inputCls} placeholder="https://…" />
+              </div>
+            ) : (
+              <div>
+                <label className={labelCls}>File *</label>
+                <input
+                  key={resType}
+                  name="file"
+                  type="file"
+                  accept={ACCEPT[resType]}
+                  required
+                  className="block w-full text-sm text-zinc-500 file:mr-3 file:rounded-md file:border-0 file:bg-indigo-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100 dark:file:bg-indigo-950 dark:file:text-indigo-300"
+                />
+                {resType === "VIDEO" && (
+                  <p className="mt-1 text-xs text-zinc-400">
+                    Auto-transcribed for “watch from m:ss to m:ss” citations
+                    (needs a transcription key; large files may be skipped).
+                  </p>
+                )}
               </div>
             )}
             <button
@@ -220,9 +244,11 @@ export function Dashboard({ products }: { products: ProductOption[] }) {
               className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-60"
             >
               {rStatus.kind === "loading"
-                ? resType === "PDF"
-                  ? "Uploading & indexing…"
-                  : "Saving…"
+                ? resType === "VIDEO"
+                  ? "Uploading & transcribing…"
+                  : resType === "LINK"
+                    ? "Saving…"
+                    : "Uploading & indexing…"
                 : "Add resource"}
             </button>
             <StatusBanner status={rStatus} />

@@ -13,6 +13,7 @@
  */
 
 import { queryMoss, type MossDoc } from "../moss";
+import { locatorFor } from "../chunk";
 import { chatJSON, type ChatMessage } from "./llm";
 
 // ---- public shapes -----------------------------------------------------------
@@ -21,7 +22,15 @@ export type Stage = "QUESTIONING" | "RECOMMENDING";
 
 export type Citation = {
   resourceTitle: string;
+  /** PDF | DOC | IMAGE | VIDEO (null for legacy/manual). */
+  kind: string | null;
+  /** Human locator: "p.4" | "3:25–4:10" | "image". */
+  locator: string | null;
+  /** Cloudinary URL for IMAGE/VIDEO citations (thumbnail / deep-link). */
+  url: string | null;
   page: number | null;
+  /** Video segment start in seconds (for #t= deep links). */
+  startSec: number | null;
   excerpt: string;
   score: number | null;
 };
@@ -101,10 +110,11 @@ function formatSources(docs: MossDoc[]): string {
   return docs
     .map((d, i) => {
       const title = d.metadata.resourceTitle ?? "Manual";
-      const page = d.metadata.page != null ? `, p.${d.metadata.page}` : "";
+      const loc = locatorFor(d.metadata);
+      const where = loc ? `, ${loc}` : "";
       // Truncate the text we feed the model — enough to reason over, far fewer
       // input tokens than the full ~1800-char chunk. Citations use full text.
-      return `[${i + 1}] (${title}${page}) ${truncate(d.text, 500)}`;
+      return `[${i + 1}] (${title}${where}) ${truncate(d.text, 500)}`;
     })
     .join("\n\n");
 }
@@ -142,9 +152,15 @@ already shows.
 Pacing: prefer to RECOMMEND by the 3rd customer turn. If the customer has already
 answered your discriminating questions, RECOMMEND rather than asking more.
 
-Cite manual excerpts by their bracket number via the "source" field (the integer,
+Cite excerpts by their bracket number via the "source" field (the integer,
 e.g. 1). Every candidate cause and the recommendation should cite a source when
 one supports it. Do not invent part numbers, pages, or fixes not in the excerpts.
+
+SOURCE KINDS: the parenthesised locator after each source title tells you what it is.
+"p.4" is a manual/document page. "M:SS–M:SS" is a SUPPORT VIDEO segment — when you cite
+one, phrase it naturally in your reply, e.g. "watch from 3:25 to 4:10 for the procedure".
+"image" is a REFERENCE IMAGE (a diagram or error-code chart) — refer to it as "see the
+reference image". Prefer a video or image source when it best shows the fix.
 
 Return ONLY a JSON object with EXACTLY this shape:
 {
@@ -243,7 +259,11 @@ export function respond(decision: DecisionJSON, docs: MossDoc[]): DiagnosticTurn
     .filter(Boolean)
     .map((d) => ({
       resourceTitle: d.metadata.resourceTitle ?? "Manual",
+      kind: typeof d.metadata.kind === "string" ? d.metadata.kind : null,
+      locator: locatorFor(d.metadata),
+      url: typeof d.metadata.url === "string" ? d.metadata.url : null,
       page: d.metadata.page != null ? Number(d.metadata.page) : null,
+      startSec: d.metadata.startSec != null ? Number(d.metadata.startSec) : null,
       excerpt: truncate(d.text, 320),
       score: d.score,
     }));
