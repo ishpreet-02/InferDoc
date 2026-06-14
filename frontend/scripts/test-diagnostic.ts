@@ -4,20 +4,18 @@
  * Requires the Moss sidecar (:8000) and OPENROUTER_API_KEY in .env.
  *
  * tsx does NOT resolve the @/ alias, so this uses relative imports.
+ *
+ * There are no seeded products — this picks a real product (one that has a PDF
+ * resource indexed into Moss) from the DB and runs a generic symptom through
+ * the loop. Add a product + manual via the company dashboard first.
  */
 import "dotenv/config";
+import { PrismaClient } from "../app/generated/prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { runDiagnosticTurn } from "../app/lib/agent/diagnostic";
 
-const SCOOTER = {
-  id: "cmqdm9d0500029wsxzqg3hvkf",
-  name: "Acme E-Scooter X1",
-  category: "Scooter",
-};
-const PURIFIER = {
-  id: "cmqdm9ecu00079wsx7j07eryb",
-  name: "Acme Water Purifier W3",
-  category: "Water Purifier",
-};
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+const prisma = new PrismaClient({ adapter });
 
 type Msg = { role: "USER" | "ASSISTANT"; content: string };
 
@@ -58,18 +56,28 @@ async function turn(
 }
 
 async function main() {
-  console.log("========== SCOOTER: headlight/display dead ==========");
-  const h: Msg[] = [];
-  await turn(SCOOTER, h, "My scooter turns on fine but the headlight and the display screen are both completely dead.");
-  await turn(SCOOTER, h, "Yes it still drives normally, the motor and throttle work. Only the lights and screen are out.");
-  await turn(SCOOTER, h, "I checked and the display ribbon connector looks seated properly.");
+  const product = await prisma.product.findFirst({
+    where: { resources: { some: { type: "PDF" } } },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, name: true, category: true },
+  });
+  if (!product) {
+    throw new Error(
+      "No product with a PDF resource found — add one via the company dashboard first.",
+    );
+  }
 
-  console.log("\n\n========== PURIFIER: no water (generalization) ==========");
-  const h2: Msg[] = [];
-  await turn(PURIFIER, h2, "My water purifier is producing almost no water from the tap.");
+  console.log(`========== ${product.name} (${product.category}) ==========`);
+  const h: Msg[] = [];
+  await turn(product, h, "It suddenly stopped working and won't turn on at all.");
+  await turn(product, h, "Yes, it's plugged in and the outlet works for other devices.");
+  await turn(product, h, "I don't see any error code or warning light.");
 }
 
-main().catch((e) => {
-  console.error("TEST FAILED:", e);
-  process.exit(1);
-});
+main()
+  .then(() => prisma.$disconnect())
+  .catch(async (e) => {
+    console.error("TEST FAILED:", e);
+    await prisma.$disconnect();
+    process.exit(1);
+  });

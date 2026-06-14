@@ -1,4 +1,9 @@
 import { prisma } from "./prisma";
+import {
+  computeDisplayStatus,
+  DUE_SOON_DAYS,
+  type DisplayStatus,
+} from "./maintenance-status";
 
 /**
  * Maintenance domain helpers shared by the /my-products pages and the
@@ -6,15 +11,14 @@ import { prisma } from "./prisma";
  *
  * The DB stores a coarse `status` (PENDING/DONE/OVERDUE) plus `nextDueAt`. The
  * UI wants a finer, *computed* view — OVERDUE / DUE_SOON / OK — derived purely
- * from `nextDueAt` relative to now, so badges stay correct without a cron job.
+ * from `nextDueAt` relative to now (see ./maintenance-status), so badges stay
+ * correct without a cron job.
  */
 
-/** Anything due within this many days (but not yet overdue) counts as DUE_SOON. */
-export const DUE_SOON_DAYS = 14;
+// Re-export so existing importers of these from "@/app/lib/maintenance" keep working.
+export { computeDisplayStatus, DUE_SOON_DAYS, type DisplayStatus };
 
 const DAY_MS = 86_400_000;
-
-export type DisplayStatus = "OVERDUE" | "DUE_SOON" | "OK";
 
 export type MaintenanceView = {
   statusId: string;
@@ -30,18 +34,6 @@ export type MaintenanceView = {
   /** 0..1 fraction of the interval elapsed since lastDoneAt (clamped). */
   progress: number;
 };
-
-/** Derive the display status from a due date relative to `now`. */
-export function computeDisplayStatus(
-  nextDueAt: Date | null,
-  now: Date = new Date(),
-): DisplayStatus {
-  if (!nextDueAt) return "OK";
-  const diffDays = (nextDueAt.getTime() - now.getTime()) / DAY_MS;
-  if (diffDays < 0) return "OVERDUE";
-  if (diffDays <= DUE_SOON_DAYS) return "DUE_SOON";
-  return "OK";
-}
 
 function daysUntil(nextDueAt: Date | null, now: Date): number | null {
   if (!nextDueAt) return null;
@@ -89,7 +81,7 @@ export function toMaintenanceView(t: TaskWithStatus, now: Date = new Date()): Ma
     sourceExcerpt: t.sourceExcerpt,
     lastDoneAt: s?.lastDoneAt ?? null,
     nextDueAt,
-    display: computeDisplayStatus(nextDueAt, now),
+    display: computeDisplayStatus(nextDueAt, t.intervalDays, now),
     daysUntilDue: daysUntil(nextDueAt, now),
     progress: elapsedProgress(s?.lastDoneAt ?? null, nextDueAt, t.intervalDays, now),
   };

@@ -1,5 +1,6 @@
 import { prisma } from "@/app/lib/prisma";
 import { Dashboard } from "@/app/components/Dashboard";
+import { MaintenanceManager } from "@/app/components/MaintenanceManager";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,9 @@ export default async function CompanyDashboard() {
         </p>
       </div>
       <Dashboard products={products} />
+      <div className="mt-8">
+        <MaintenanceManager products={products} />
+      </div>
     </div>
   );
 }

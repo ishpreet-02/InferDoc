@@ -1,14 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { prisma } from "@/app/lib/prisma";
 import { runDiagnosticTurn } from "@/app/lib/agent/diagnostic";
 import { describeImage } from "@/app/lib/agent/llm";
+import { uploadImageToCloudinary } from "@/app/lib/cloudinary";
 import { apiError } from "@/app/lib/errors";
 
 export const runtime = "nodejs";
-
-const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads");
 
 /** Per-message extras stored in Message.citations for USER messages. */
 type UserMeta = { imageUrl?: string; imageDescription?: string };
@@ -26,16 +23,13 @@ function effectiveContent(content: string, citations: unknown): string {
   return `${base}[Customer shared a photo. Visual analysis: ${desc}]`;
 }
 
-/** Decode a data URL (or bare base64) and persist it under /public/uploads. */
+/** Decode a data URL (or bare base64) and upload it to Cloudinary. */
 async function saveImage(dataUrl: string): Promise<string> {
-  const match = /^data:(image\/(png|jpe?g|webp));base64,(.+)$/i.exec(dataUrl.trim());
-  const ext = match ? match[2].replace("jpeg", "jpg") : "png";
-  const b64 = match ? match[3] : dataUrl;
-  const bytes = Buffer.from(b64, "base64");
-  await mkdir(UPLOAD_DIR, { recursive: true });
-  const fileName = `chat-${randomUUID().slice(0, 8)}.${ext}`;
-  await writeFile(path.join(UPLOAD_DIR, fileName), bytes);
-  return `/uploads/${fileName}`;
+  const match = /^data:image\/(png|jpe?g|webp);base64,(.+)$/i.exec(dataUrl.trim());
+  const b64 = match ? match[2] : dataUrl;
+  const bytes = new Uint8Array(Buffer.from(b64, "base64"));
+  const { url } = await uploadImageToCloudinary(bytes, `chat-${randomUUID().slice(0, 8)}`);
+  return url;
 }
 
 /**
@@ -80,7 +74,13 @@ export async function POST(
     // 0. Vision pre-step (B3): describe the photo, save it for the thumbnail.
     let meta: UserMeta | undefined;
     if (hasImage) {
-      const imageUrl = await saveImage(imageBase64);
+      let imageUrl: string | undefined;
+      try {
+        imageUrl = await saveImage(imageBase64);
+      } catch (err) {
+        // Degrade gracefully — keep diagnosing even if the upload fails.
+        console.error("image upload failed:", err);
+      }
       let imageDescription: string | undefined;
       try {
         imageDescription = await describeImage(imageBase64, {

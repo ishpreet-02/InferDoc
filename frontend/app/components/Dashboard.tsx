@@ -62,6 +62,33 @@ export function Dashboard({ products }: { products: ProductOption[] }) {
     }
   }
 
+  // ---- delete product ----
+  const [dStatus, setDStatus] = useState<Status>({ kind: "idle" });
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  async function deleteProduct(id: string, name: string) {
+    if (
+      !window.confirm(
+        `Delete “${name}”? This also removes its resources, maintenance tasks, ` +
+          `conversations and any owner records. This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    setDeletingId(id);
+    setDStatus({ kind: "loading" });
+    try {
+      const res = await fetch(`/api/products/${id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error ?? "request failed");
+      setDStatus({ kind: "ok", message: `Deleted “${name}”.` });
+      router.refresh();
+    } catch (err) {
+      setDStatus({ kind: "error", message: String(err) });
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   // ---- upload resource ----
   const [rStatus, setRStatus] = useState<Status>({ kind: "idle" });
   const [resType, setResType] = useState<"PDF" | "LINK">("PDF");
@@ -91,6 +118,7 @@ export function Dashboard({ products }: { products: ProductOption[] }) {
   }
 
   return (
+    <div className="space-y-8">
     <div className="grid gap-8 lg:grid-cols-2">
       {/* Add product */}
       <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
@@ -201,6 +229,38 @@ export function Dashboard({ products }: { products: ProductOption[] }) {
           </form>
         )}
       </section>
+
+      {/* Manage products */}
+      <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 lg:col-span-2">
+        <h2 className="text-lg font-semibold">Manage products</h2>
+        <p className="mt-1 text-sm text-zinc-500">
+          Delete a product and all of its resources, tasks and conversations.
+        </p>
+        {products.length === 0 ? (
+          <p className="mt-4 text-sm text-zinc-500">No products yet.</p>
+        ) : (
+          <ul className="mt-4 divide-y divide-zinc-200 dark:divide-zinc-800">
+            {products.map((p) => (
+              <li
+                key={p.id}
+                className="flex items-center justify-between gap-4 py-3"
+              >
+                <span className="text-sm">{p.name}</span>
+                <button
+                  type="button"
+                  onClick={() => deleteProduct(p.id, p.name)}
+                  disabled={deletingId === p.id}
+                  className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-60 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
+                >
+                  {deletingId === p.id ? "Deleting…" : "Delete"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <StatusBanner status={dStatus} />
+      </section>
+    </div>
     </div>
   );
 }

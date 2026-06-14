@@ -1,13 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { prisma } from "@/app/lib/prisma";
 import { ingestPdf } from "@/app/lib/ingest";
+import { uploadPdfToCloudinary } from "@/app/lib/cloudinary";
 import { apiError, friendlyMessage } from "@/app/lib/errors";
 
 export const runtime = "nodejs";
-
-const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads");
 
 function slugify(s: string) {
   return s
@@ -27,9 +24,10 @@ function slugify(s: string) {
  *   file       the PDF (when type=PDF)
  *   url        external URL (when type=LINK)
  *
- * For PDFs we save the file to /public/uploads, extract per-page text, chunk it
- * with page metadata, persist Resource.extractedText, and index the chunks into
- * the product's Moss index.
+ * For PDFs we upload the file to Cloudinary (so it survives a serverless /
+ * read-only-filesystem deploy), extract per-page text, chunk it with page
+ * metadata, persist Resource.extractedText, and index the chunks into the
+ * product's Moss index.
  */
 export async function POST(req: Request) {
   try {
@@ -81,10 +79,19 @@ export async function POST(req: Request) {
     }
 
     const bytes = new Uint8Array(await file.arrayBuffer());
-    await mkdir(UPLOAD_DIR, { recursive: true });
-    const fileName = `${slugify(title) || "manual"}-${randomUUID().slice(0, 8)}.pdf`;
-    await writeFile(path.join(UPLOAD_DIR, fileName), bytes);
-    const publicUrl = `/uploads/${fileName}`;
+    const publicId = `${slugify(title) || "manual"}-${randomUUID().slice(0, 8)}.pdf`;
+
+    let publicUrl: string;
+    try {
+      const uploaded = await uploadPdfToCloudinary(bytes, publicId);
+      publicUrl = uploaded.url;
+    } catch (err) {
+      console.error("[resources/upload]", err);
+      return Response.json(
+        { ok: false, error: `PDF upload failed: ${friendlyMessage(err)}` },
+        { status: 502 },
+      );
+    }
 
     // Create the row first so chunk ids reference a stable resource id.
     const resource = await prisma.resource.create({
@@ -106,7 +113,7 @@ export async function POST(req: Request) {
         {
           ok: false,
           resource,
-          error: `The file was saved, but indexing failed: ${friendlyMessage(err)}`,
+          error: `The file was uploaded, but indexing failed: ${friendlyMessage(err)}`,
         },
         { status: 502 },
       );

@@ -9,7 +9,7 @@ export type ChatMessage = {
   role: "USER" | "ASSISTANT";
   content: string;
   readout?: Readout;
-  /** Thumbnail for a customer-attached photo (data URL while sending, then /uploads URL). */
+  /** Thumbnail for a customer-attached photo (data URL while sending, then Cloudinary URL). */
   imageUrl?: string;
 };
 
