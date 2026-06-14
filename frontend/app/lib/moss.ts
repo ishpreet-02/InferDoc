@@ -46,6 +46,29 @@ export async function indexChunks(
   return res.json();
 }
 
+/**
+ * Delete a product's chunks from the shared index (optionally just one
+ * resource's). Best-effort: callers should not fail the DB delete if the sidecar
+ * is down — chunks tagged with a now-dead productId are harmless orphans.
+ */
+export async function deleteProductChunks(
+  productId: string,
+  resourceId?: string,
+): Promise<{ deleted: number }> {
+  const res = await fetch(`${MOSS_SERVICE_URL}/delete/${productId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(resourceId ? { resourceId } : {}),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(
+      `Moss delete failed (${res.status}): ${await res.text().catch(() => "")}`,
+    );
+  }
+  return res.json();
+}
+
 /** Query the shared index, filtered server-side to this product's chunks. */
 export async function queryMoss(
   productId: string,

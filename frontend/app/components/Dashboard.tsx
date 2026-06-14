@@ -50,6 +50,7 @@ export function Dashboard({ products }: { products: ProductOption[] }) {
           category: data.get("category"),
           description: data.get("description"),
           imageUrl: data.get("imageUrl"),
+          warrantyMonths: data.get("warrantyMonths") || undefined,
         }),
       });
       const json = await res.json();
@@ -156,6 +157,17 @@ export function Dashboard({ products }: { products: ProductOption[] }) {
           <div>
             <label className={labelCls}>Image URL</label>
             <input name="imageUrl" className={inputCls} placeholder="https://… (optional)" />
+          </div>
+          <div>
+            <label className={labelCls}>Warranty (months)</label>
+            <input
+              name="warrantyMonths"
+              type="number"
+              min={1}
+              step={1}
+              className={inputCls}
+              placeholder="e.g. 24 (optional)"
+            />
           </div>
           <button
             type="submit"

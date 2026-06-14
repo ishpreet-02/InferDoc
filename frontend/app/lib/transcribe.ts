@@ -13,10 +13,17 @@ import type { TranscriptSegment } from "./chunk";
  * We request verbose_json with segment timestamps so a transcript can be split
  * into time-ranged chunks ("watch from 3:25 to 4:10"). Throws on any transport
  * error so the caller can degrade (keep the video, skip the transcript).
+ *
+ * This is an English-language product-support platform, so by default we hit the
+ * `/audio/translations` endpoint, which transcribes-AND-translates any language
+ * to English (a Hindi how-to video becomes English chunks that embed against
+ * English queries and render as readable citations; an English video passes
+ * through unchanged). Set TRANSCRIBE_TRANSLATE=false to keep the source language.
  */
 
 const BASE_URL = process.env.TRANSCRIBE_BASE_URL ?? "https://api.openai.com/v1";
 const MODEL = process.env.TRANSCRIBE_MODEL ?? "whisper-1";
+const TRANSLATE = process.env.TRANSCRIBE_TRANSLATE !== "false";
 
 export function transcribeConfigured(): boolean {
   return Boolean(process.env.TRANSCRIBE_API_KEY);
@@ -40,9 +47,12 @@ export async function transcribe(
   form.append("file", new Blob([new Uint8Array(bytes)], { type: mime }), filename);
   form.append("model", MODEL);
   form.append("response_format", "verbose_json");
-  form.append("timestamp_granularities[]", "segment");
+  // The translations endpoint only emits segment-level timestamps and rejects
+  // the granularity hint; only send it for plain transcription.
+  if (!TRANSLATE) form.append("timestamp_granularities[]", "segment");
 
-  const res = await fetch(`${BASE_URL}/audio/transcriptions`, {
+  const endpoint = TRANSLATE ? "audio/translations" : "audio/transcriptions";
+  const res = await fetch(`${BASE_URL}/${endpoint}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}` },
     body: form,

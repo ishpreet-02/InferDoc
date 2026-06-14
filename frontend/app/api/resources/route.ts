@@ -30,6 +30,7 @@ function slugify(s: string) {
 /** Pick the resource kind from an explicit type or the file's mime/extension. */
 function resolveKind(explicit: string, file: File | null): FileKind | "LINK" {
   const t = explicit.toUpperCase();
+  if (t === "DOCX") return "DOC";
   if (t === "PDF" || t === "DOC" || t === "IMAGE" || t === "VIDEO" || t === "LINK") {
     return t as FileKind | "LINK";
   }
@@ -136,7 +137,10 @@ export async function POST(req: Request) {
     try {
       switch (kind) {
         case "PDF":
-          ingest = await ingestPdf(productId, ref, bytes);
+          ingest = await ingestPdf(productId, ref, bytes, {
+            product: product.name,
+            category: product.category,
+          });
           break;
         case "DOC":
           ingest = await ingestDocx(productId, ref, bytes);

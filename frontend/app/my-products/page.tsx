@@ -6,6 +6,7 @@ import {
   sortMaintenanceViews,
   type MaintenanceView,
 } from "@/app/lib/maintenance";
+import { computeWarranty } from "@/app/lib/warranty";
 import { ProductImage } from "@/app/components/ProductImage";
 import { StatusBadge } from "@/app/components/StatusBadge";
 
@@ -31,7 +32,9 @@ export default async function MyProductsPage() {
     prisma.userInventory.findMany({
       where: { userId: user.id },
       orderBy: { purchasedAt: "desc" },
-      include: { product: true },
+      include: {
+        product: { include: { _count: { select: { recalls: true } } } },
+      },
     }),
     prisma.userMaintenanceStatus.findMany({
       where: { userId: user.id },
@@ -58,7 +61,9 @@ export default async function MyProductsPage() {
 
   const items = inventory.map((inv) => {
     const views = sortMaintenanceViews(byProduct.get(inv.productId) ?? []);
-    return { inv, views, counts: tally(views) };
+    const warranty = computeWarranty(inv.purchasedAt, inv.product.warrantyMonths, now);
+    const recallCount = inv.product._count.recalls;
+    return { inv, views, counts: tally(views), warranty, recallCount };
   });
 
   const totals = items.reduce(
@@ -66,8 +71,12 @@ export default async function MyProductsPage() {
       overdue: acc.overdue + it.counts.overdue,
       dueSoon: acc.dueSoon + it.counts.dueSoon,
       products: acc.products + 1,
+      alerts:
+        acc.alerts +
+        it.recallCount +
+        (it.warranty.status === "EXPIRING" || it.warranty.status === "EXPIRED" ? 1 : 0),
     }),
-    { overdue: 0, dueSoon: 0, products: 0 },
+    { overdue: 0, dueSoon: 0, products: 0, alerts: 0 },
   );
 
   return (
@@ -94,10 +103,11 @@ export default async function MyProductsPage() {
       </div>
 
       {/* Stat strip */}
-      <div className="mt-6 grid grid-cols-3 gap-3 sm:max-w-md">
+      <div className="mt-6 grid grid-cols-2 gap-3 sm:max-w-2xl sm:grid-cols-4">
         <Stat label="Owned" value={totals.products} tone="neutral" />
         <Stat label="Overdue" value={totals.overdue} tone="overdue" />
         <Stat label="Due soon" value={totals.dueSoon} tone="dueSoon" />
+        <Stat label="Alerts" value={totals.alerts} tone="alert" />
       </div>
 
       {/* Inventory */}
@@ -120,7 +130,7 @@ export default async function MyProductsPage() {
         </div>
       ) : (
         <ul className="mt-8 grid gap-4">
-          {items.map(({ inv, views, counts }) => {
+          {items.map(({ inv, views, counts, warranty, recallCount }) => {
             const next = views[0];
             return (
               <li key={inv.id}>
@@ -163,11 +173,29 @@ export default async function MyProductsPage() {
                           {counts.dueSoon} due soon
                         </span>
                       )}
-                      {counts.overdue === 0 && counts.dueSoon === 0 && (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:ring-emerald-900">
-                          All on track
+                      {recallCount > 0 && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700 ring-1 ring-inset ring-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:ring-rose-900">
+                          🚨 {recallCount} recall{recallCount === 1 ? "" : "s"}
                         </span>
                       )}
+                      {warranty.status === "EXPIRING" && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:ring-amber-900">
+                          🛡️ warranty ends in {warranty.daysLeft}d
+                        </span>
+                      )}
+                      {warranty.status === "EXPIRED" && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-semibold text-zinc-500 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:ring-zinc-700">
+                          🛡️ warranty expired
+                        </span>
+                      )}
+                      {counts.overdue === 0 &&
+                        counts.dueSoon === 0 &&
+                        recallCount === 0 &&
+                        warranty.status !== "EXPIRING" && (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:ring-emerald-900">
+                            All on track
+                          </span>
+                        )}
                       <span className="text-xs text-zinc-400">
                         {counts.total} task{counts.total === 1 ? "" : "s"} tracked
                       </span>
@@ -215,14 +243,16 @@ function Stat({
 }: {
   label: string;
   value: number;
-  tone: "neutral" | "overdue" | "dueSoon";
+  tone: "neutral" | "overdue" | "dueSoon" | "alert";
 }) {
   const toneClass =
     tone === "overdue" && value > 0
       ? "text-rose-600 dark:text-rose-400"
       : tone === "dueSoon" && value > 0
         ? "text-amber-600 dark:text-amber-400"
-        : "text-zinc-900 dark:text-zinc-100";
+        : tone === "alert" && value > 0
+          ? "text-rose-600 dark:text-rose-400"
+          : "text-zinc-900 dark:text-zinc-100";
   return (
     <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
       <div className={`text-2xl font-semibold tabular-nums ${toneClass}`}>

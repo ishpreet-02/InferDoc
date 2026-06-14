@@ -36,6 +36,12 @@ enum ConversationStatus {
   RESOLVED
 }
 
+enum RecallSeverity {
+  NOTICE // informational: service campaign, firmware advisory
+  SAFETY // safety notice: use with caution
+  RECALL // formal recall: stop use / return
+}
+
 model Company {
   id        String    @id @default(cuid())
   name      String
@@ -52,6 +58,8 @@ model Product {
   category    String
   description String?
   imageUrl    String?
+  /** Manufacturer warranty length in months; null = no stated warranty. */
+  warrantyMonths Int?
   createdAt   DateTime @default(now())
 
   company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -59,8 +67,24 @@ model Product {
   maintenanceTasks MaintenanceTask[]
   inventory        UserInventory[]
   conversations    Conversation[]
+  recalls          Recall[]
 
   @@index([companyId])
+}
+
+model Recall {
+  id        String         @id @default(cuid())
+  productId String
+  title     String
+  body      String
+  severity  RecallSeverity @default(NOTICE)
+  /** Optional link to the full notice / service bulletin. */
+  url       String?
+  issuedAt  DateTime       @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
 }
 
 model Resource {

@@ -179,15 +179,18 @@ export function fmtTime(sec: number): string {
 /** A short human label for where a chunk/citation came from. */
 export function locatorFor(meta: {
   kind?: string;
-  page?: number | null;
-  startSec?: number | null;
-  endSec?: number | null;
+  // Accept string values too — the Moss sidecar stringifies all metadata.
+  page?: number | string | null;
+  startSec?: number | string | null;
+  endSec?: number | string | null;
 }): string | null {
   if (meta.kind === "VIDEO" && meta.startSec != null) {
     const end = meta.endSec != null ? `–${fmtTime(Number(meta.endSec))}` : "";
     return `${fmtTime(Number(meta.startSec))}${end}`;
   }
-  if (meta.kind === "IMAGE") return "image";
+  if (meta.kind === "IMAGE") {
+    return meta.page != null ? `figure p.${meta.page}` : "image";
+  }
   if (meta.page != null) return `p.${meta.page}`;
   return null;
 }

@@ -29,3 +29,5 @@ venv/
 
 # Do NOT ignore images (screenshots for README)
 !images/
+/videos
+*.mp4

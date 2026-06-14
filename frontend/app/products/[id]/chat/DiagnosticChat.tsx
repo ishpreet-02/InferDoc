@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { Readout } from "@/app/lib/agent/diagnostic";
+import { useSpeech } from "./useSpeech";
 
 export type ChatMessage = {
   id: string;
@@ -65,11 +66,18 @@ export function DiagnosticChat({
   const [image, setImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [handsFree, setHandsFree] = useState(false);
 
   const threadRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const tmpId = useRef(0);
+
+  const speech = useSpeech();
+  // Refs so speech callbacks (fired async) always see the latest values.
+  // Updated in an effect (never during render).
+  const handsFreeRef = useRef(handsFree);
+  const sendRef = useRef<(text: string) => void>(() => {});
 
   const lastReadout = [...messages].reverse().find((m) => m.role === "ASSISTANT")
     ?.readout;
@@ -79,6 +87,11 @@ export function DiagnosticChat({
     const el = threadRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
+
+  // Keep latest-value refs current for async speech callbacks.
+  useEffect(() => {
+    handsFreeRef.current = handsFree;
+  }, [handsFree]);
 
   async function send(text: string) {
     const content = text.trim();
@@ -122,12 +135,57 @@ export function DiagnosticChat({
           readout: data.assistantMessage.readout,
         },
       ]);
+      // Hands-free: read the reply aloud, then re-open the mic so the customer
+      // can answer without touching the device (the scooter-repair scenario).
+      if (handsFreeRef.current && speech.ttsSupported) {
+        const stillQuestioning =
+          data.assistantMessage.readout?.stage !== "RECOMMENDING";
+        speech.speak(data.assistantMessage.content, () => {
+          if (handsFreeRef.current && stillQuestioning) listen();
+        });
+      }
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
     } finally {
       setLoading(false);
       requestAnimationFrame(() => inputRef.current?.focus());
     }
+  }
+  useEffect(() => {
+    sendRef.current = send;
+  });
+
+  // Start dictation: interim words stream into the composer; the final
+  // utterance auto-sends (so voice replies don't need a tap to submit).
+  function listen() {
+    setError(null);
+    speech.startListening({
+      onInterim: (text) => setInput(text),
+      onFinal: (text) => {
+        setInput("");
+        sendRef.current(text);
+      },
+    });
+  }
+
+  function toggleMic() {
+    if (speech.listening) {
+      speech.stopListening();
+    } else {
+      speech.cancelSpeak();
+      listen();
+    }
+  }
+
+  function toggleHandsFree() {
+    setHandsFree((on) => {
+      const next = !on;
+      if (!next) {
+        speech.cancelSpeak();
+        speech.stopListening();
+      }
+      return next;
+    });
   }
 
   async function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
@@ -191,6 +249,23 @@ export function DiagnosticChat({
           </div>
           <StagePill readout={lastReadout} loading={loading} />
           <div className="flex-1" />
+          {speech.sttSupported && speech.ttsSupported && (
+            <button
+              onClick={toggleHandsFree}
+              aria-pressed={handsFree}
+              title="Hands-free mode: I read replies aloud and listen for your answer"
+              className={`shrink-0 inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                handsFree
+                  ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-500 dark:bg-indigo-950 dark:text-indigo-300"
+                  : "border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              }`}
+            >
+              <HandsFreeIcon />
+              <span className="hidden sm:inline">
+                Hands-free{handsFree ? " on" : ""}
+              </span>
+            </button>
+          )}
           {messages.length > 0 && (
             <button
               onClick={newChat}
@@ -227,7 +302,15 @@ export function DiagnosticChat({
                 </div>
               </div>
             ) : (
-              <AssistantMessage key={m.id} message={m} />
+              <AssistantMessage
+                key={m.id}
+                message={m}
+                onSpeak={
+                  speech.ttsSupported
+                    ? () => speech.speak(m.content)
+                    : undefined
+                }
+              />
             ),
           )}
 
@@ -296,10 +379,30 @@ export function DiagnosticChat({
             >
               <CameraIcon />
             </button>
+            {speech.sttSupported && (
+              <button
+                onClick={toggleMic}
+                disabled={loading}
+                aria-label={speech.listening ? "Stop listening" : "Speak"}
+                aria-pressed={speech.listening}
+                title={speech.listening ? "Listening… tap to stop" : "Speak your answer"}
+                className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg transition-colors disabled:opacity-40 ${
+                  speech.listening
+                    ? "bg-red-500 text-white animate-pulse"
+                    : "text-zinc-500 hover:bg-zinc-100 hover:text-indigo-600 dark:hover:bg-zinc-800 dark:hover:text-indigo-400"
+                }`}
+              >
+                <MicIcon />
+              </button>
+            )}
             <textarea
               ref={inputRef}
               rows={1}
-              placeholder={`Describe the problem with your ${product.name}…`}
+              placeholder={
+                speech.listening
+                  ? "Listening…"
+                  : `Describe the problem with your ${product.name}…`
+              }
               value={input}
               disabled={loading}
               onChange={(e) => {
@@ -346,12 +449,30 @@ function Greeting({ product }: { product: Product }) {
   );
 }
 
-function AssistantMessage({ message }: { message: ChatMessage }) {
+function AssistantMessage({
+  message,
+  onSpeak,
+}: {
+  message: ChatMessage;
+  onSpeak?: () => void;
+}) {
   const r = message.readout;
   return (
     <div className="flex flex-col gap-3">
-      <div className="max-w-[85%] whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
-        {message.content}
+      <div className="flex max-w-[85%] items-start gap-1.5">
+        <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
+          {message.content}
+        </div>
+        {onSpeak && (
+          <button
+            onClick={onSpeak}
+            aria-label="Read aloud"
+            title="Read aloud"
+            className="mt-0.5 shrink-0 text-zinc-300 transition-colors hover:text-indigo-500 dark:text-zinc-600 dark:hover:text-indigo-400"
+          >
+            <SpeakerIcon />
+          </button>
+        )}
       </div>
 
       {r && r.questions.length > 0 && (
@@ -379,11 +500,49 @@ function AssistantMessage({ message }: { message: ChatMessage }) {
         </div>
       )}
 
+      {r && r.spareParts && r.spareParts.length > 0 && (
+        <SpareParts parts={r.spareParts} />
+      )}
+
       {r && r.candidateCauses.length > 0 && (
         <Causes causes={r.candidateCauses} />
       )}
 
       {r && r.citations.length > 0 && <Citations citations={r.citations} />}
+    </div>
+  );
+}
+
+function SpareParts({ parts }: { parts: NonNullable<Readout["spareParts"]> }) {
+  return (
+    <div className="max-w-[85%] rounded-xl border border-sky-200 bg-sky-50 p-3 dark:border-sky-900/60 dark:bg-sky-950/40">
+      <p className="mb-2.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-400">
+        🔧 Parts you may need
+      </p>
+      <div className="flex flex-col gap-2">
+        {parts.map((p, i) => (
+          <div
+            key={`${p.name}-${i}`}
+            className="rounded-lg border border-sky-200/70 bg-white px-3 py-2 dark:border-sky-900/40 dark:bg-zinc-900"
+          >
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+              <span className="text-sm font-medium text-zinc-800 dark:text-zinc-100">
+                {p.name}
+              </span>
+              {p.partNumber && (
+                <span className="rounded border border-sky-300 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-sky-700 dark:border-sky-700 dark:text-sky-300">
+                  {p.partNumber}
+                </span>
+              )}
+            </div>
+            {p.reason && (
+              <p className="mt-0.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+                {p.reason}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -471,7 +630,7 @@ function Citations({ citations }: { citations: NonNullable<Readout["citations"]>
                   </a>
                 ) : c.kind === "IMAGE" ? (
                   <span className="rounded border border-zinc-300 px-1.5 py-0.5 font-mono text-[10px] text-zinc-500 dark:border-zinc-700">
-                    🖼 image
+                    🖼 {c.locator ?? "image"}
                   </span>
                 ) : (
                   (c.locator ?? (c.page != null ? `p.${c.page}` : null)) && (
@@ -562,6 +721,34 @@ function CameraIcon() {
         strokeLinejoin="round"
       />
       <circle cx="12.5" cy="13" r="3.2" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+function MicIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+      <rect x="9" y="3" width="6" height="11" rx="3" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M5 11a7 7 0 0 0 14 0M12 18v3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function HandsFreeIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+      <path d="M4 13v-1a8 8 0 0 1 16 0v1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <rect x="3" y="13" width="4" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
+      <rect x="17" y="13" width="4" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+function SpeakerIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+      <path d="M4 9v6h4l5 4V5L8 9H4Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M17 9a4 4 0 0 1 0 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }
