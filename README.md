@@ -206,14 +206,14 @@ User (1) ──< UserInventory (N) ──< Product
 | `CLOUDINARY_API_KEY` | ✅ | Cloudinary API key. |
 | `CLOUDINARY_API_SECRET` | ✅ | Cloudinary API secret. |
 | `CLOUDINARY_FOLDER` | — | Upload folder. Default `moss`. |
-| `TRANSCRIBE_API_KEY` | — | Whisper-compatible key — needed only to ingest **videos**. |
-| `TRANSCRIBE_BASE_URL` | — | Default OpenAI `https://api.openai.com/v1`; Groq = `https://api.groq.com/openai/v1`. |
-| `TRANSCRIBE_MODEL` | — | Default `whisper-1`; Groq = `whisper-large-v3`. |
-| `TRANSCRIBE_TRANSLATE` | — | Translate non-English videos to English (default `true`). Set `false` to keep the source language. |
+| `TRANSCRIBE_API_KEY` | ✅ | Whisper-compatible key — needed only to ingest **videos**. |
+| `TRANSCRIBE_BASE_URL` | ✅ | Default OpenAI `https://api.openai.com/v1`; Groq = `https://api.groq.com/openai/v1`. |
+| `TRANSCRIBE_MODEL` | ✅ | Default `whisper-1`; Groq = `whisper-large-v3`. |
+| `TRANSCRIBE_TRANSLATE` | true | Translate non-English videos to English (default `true`). Set `false` to keep the source language. |
 | `MOSS_SERVICE_URL` | — | Sidecar URL. Default `http://localhost:8000`. |
 | `MOSS_INDEX` | — | Shared index name. Default `acme-catalog`. |
 
-### `backend/.env`
+### `backend/.env , Required in both` 
 
 | Var | Required | Notes |
 |-----|----------|-------|
