@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/app/lib/prisma";
 import { getDemoUser } from "@/app/lib/user";
 import { ProductImage } from "@/app/components/ProductImage";
+import { DeleteResourceButton } from "@/app/components/DeleteResourceButton";
 import { AddToInventoryButton } from "@/app/components/AddToInventoryButton";
 
 export const dynamic = "force-dynamic";
@@ -103,35 +104,60 @@ export default async function ProductDetail({
         ) : (
           <ul className="divide-y divide-zinc-200 overflow-hidden rounded-xl border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
             {product.resources.map((r) => (
-              <li
-                key={r.id}
-                className="flex items-center justify-between gap-4 bg-white px-4 py-3 dark:bg-zinc-900"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                        TYPE_BADGE[r.type] ?? "bg-zinc-100 text-zinc-600"
-                      }`}
-                    >
-                      {r.type}
-                    </span>
-                    <span className="truncate font-medium">{r.title}</span>
+              <li key={r.id} className="bg-white px-4 py-3 dark:bg-zinc-900">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                          TYPE_BADGE[r.type] ?? "bg-zinc-100 text-zinc-600"
+                        }`}
+                      >
+                        {r.type}
+                      </span>
+                      <span className="truncate font-medium">{r.title}</span>
+                    </div>
+                    {r.extractedText && (
+                      <p className="mt-0.5 text-xs text-zinc-400">
+                        {r.type === "VIDEO"
+                          ? "Transcribed & indexed"
+                          : r.type === "IMAGE"
+                            ? "Described & indexed for retrieval"
+                            : "Indexed for retrieval"}{" "}
+                        · {r.extractedText.length.toLocaleString()} chars
+                      </p>
+                    )}
                   </div>
-                  {r.extractedText && (
-                    <p className="mt-0.5 text-xs text-zinc-400">
-                      Indexed for retrieval · {r.extractedText.length.toLocaleString()} chars
-                    </p>
-                  )}
+                  <div className="flex shrink-0 items-center gap-2">
+                    <a
+                      href={r.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    >
+                      {r.type === "LINK" ? "Open ↗" : "View / Download"}
+                    </a>
+                    <DeleteResourceButton resourceId={r.id} title={r.title} />
+                  </div>
                 </div>
-                <a
-                  href={r.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="shrink-0 rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                >
-                  {r.type === "LINK" ? "Open ↗" : "View / Download"}
-                </a>
+
+                {/* Inline preview for media resources */}
+                {r.type === "IMAGE" && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={r.url}
+                    alt={r.title}
+                    className="mt-3 max-h-64 rounded-lg border border-zinc-200 object-contain dark:border-zinc-800"
+                  />
+                )}
+                {r.type === "VIDEO" && (
+                  <video
+                    src={r.url}
+                    controls
+                    preload="metadata"
+                    className="mt-3 max-h-72 w-full rounded-lg border border-zinc-200 dark:border-zinc-800"
+                  />
+                )}
               </li>
             ))}
           </ul>

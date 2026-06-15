@@ -13,6 +13,7 @@
  */
 
 import { queryMoss, type MossDoc } from "../moss";
+import { locatorFor } from "../chunk";
 import { chatJSON, type ChatMessage } from "./llm";
 
 // ---- public shapes -----------------------------------------------------------
@@ -21,7 +22,15 @@ export type Stage = "QUESTIONING" | "RECOMMENDING";
 
 export type Citation = {
   resourceTitle: string;
+  /** PDF | DOC | IMAGE | VIDEO (null for legacy/manual). */
+  kind: string | null;
+  /** Human locator: "p.4" | "3:25–4:10" | "image". */
+  locator: string | null;
+  /** Cloudinary URL for IMAGE/VIDEO citations (thumbnail / deep-link). */
+  url: string | null;
   page: number | null;
+  /** Video segment start in seconds (for #t= deep links). */
+  startSec: number | null;
   excerpt: string;
   score: number | null;
 };
@@ -39,12 +48,25 @@ export type Recommendation = {
   source?: number;
 };
 
+export type SparePart = {
+  /** Human name of the part/component/consumable. */
+  name: string;
+  /** Manufacturer part number, if the manual states one. */
+  partNumber?: string;
+  /** Why this part is implicated by the diagnosis. */
+  reason: string;
+  /** Index into the retrieved sources naming this part (1-based), if any. */
+  source?: number;
+};
+
 /** What gets stored in Message.citations and drives the readout UI. */
 export type Readout = {
   stage: Stage;
   candidateCauses: CandidateCause[];
   questions: string[];
   recommendation: Recommendation | null;
+  /** Parts/consumables the fix may require, drawn from the cited excerpts. */
+  spareParts: SparePart[];
   citations: Citation[];
 };
 
@@ -101,10 +123,11 @@ function formatSources(docs: MossDoc[]): string {
   return docs
     .map((d, i) => {
       const title = d.metadata.resourceTitle ?? "Manual";
-      const page = d.metadata.page != null ? `, p.${d.metadata.page}` : "";
+      const loc = locatorFor(d.metadata);
+      const where = loc ? `, ${loc}` : "";
       // Truncate the text we feed the model — enough to reason over, far fewer
       // input tokens than the full ~1800-char chunk. Citations use full text.
-      return `[${i + 1}] (${title}${page}) ${truncate(d.text, 500)}`;
+      return `[${i + 1}] (${title}${where}) ${truncate(d.text, 500)}`;
     })
     .join("\n\n");
 }
@@ -117,6 +140,7 @@ type DecisionJSON = {
   candidate_causes: CandidateCause[];
   questions: string[];
   recommendation: Recommendation | null;
+  spare_parts: SparePart[];
 };
 
 const SYSTEM_PROMPT = `You are Musk, an expert diagnostic technician for {PRODUCT} ({CATEGORY}).
@@ -142,9 +166,22 @@ already shows.
 Pacing: prefer to RECOMMEND by the 3rd customer turn. If the customer has already
 answered your discriminating questions, RECOMMEND rather than asking more.
 
-Cite manual excerpts by their bracket number via the "source" field (the integer,
+Cite excerpts by their bracket number via the "source" field (the integer,
 e.g. 1). Every candidate cause and the recommendation should cite a source when
 one supports it. Do not invent part numbers, pages, or fixes not in the excerpts.
+
+SPARE PARTS: when a fix involves replacing or servicing a component, list the
+spare parts, replacement components, consumables, or accessories it needs in
+"spare_parts". Include ONLY parts actually named in the cited excerpts — never
+invent a part name or number. Copy any part number EXACTLY as written. Give a
+short "reason" tying each part to the diagnosis, and cite its "source". If the
+excerpts name no specific parts, return [].
+
+SOURCE KINDS: the parenthesised locator after each source title tells you what it is.
+"p.4" is a manual/document page. "M:SS–M:SS" is a SUPPORT VIDEO segment — when you cite
+one, phrase it naturally in your reply, e.g. "watch from 3:25 to 4:10 for the procedure".
+"image" is a REFERENCE IMAGE (a diagram or error-code chart) — refer to it as "see the
+reference image". Prefer a video or image source when it best shows the fix.
 
 Return ONLY a JSON object with EXACTLY this shape:
 {
@@ -152,10 +189,12 @@ Return ONLY a JSON object with EXACTLY this shape:
   "reply": "what to say to the customer (1-3 sentences; if QUESTIONING, briefly frame the questions)",
   "candidate_causes": [{ "cause": "string", "confidence": 0.0-1.0, "source": <int or omit> }],
   "questions": ["string", ...],   // 2-4 items when stage=QUESTIONING, else []
-  "recommendation": { "fix": "string", "source": <int or omit> } | null
+  "recommendation": { "fix": "string", "source": <int or omit> } | null,
+  "spare_parts": [{ "name": "string", "partNumber": "string or omit", "reason": "string", "source": <int or omit> }]
 }
 Rules: when stage="QUESTIONING", "questions" has 2-4 items and "recommendation" is null.
-When stage="RECOMMENDING", "questions" is [] and "recommendation" is set.`;
+When stage="RECOMMENDING", "questions" is [] and "recommendation" is set.
+"spare_parts" defaults to [] and is only populated when the cited excerpts name real parts.`;
 
 /** Ask the model to triage the case into questions or a recommendation. */
 export async function decide(
@@ -195,6 +234,7 @@ function normalizeDecision(d: DecisionJSON): DecisionJSON {
   const stage: Stage = d.stage === "RECOMMENDING" ? "RECOMMENDING" : "QUESTIONING";
   const causes = Array.isArray(d.candidate_causes) ? d.candidate_causes : [];
   const questions = Array.isArray(d.questions) ? d.questions.filter(Boolean) : [];
+  const parts = Array.isArray(d.spare_parts) ? d.spare_parts : [];
 
   return {
     stage,
@@ -215,6 +255,17 @@ function normalizeDecision(d: DecisionJSON): DecisionJSON {
             source: toSourceIndex(d.recommendation.source),
           }
         : null,
+    spare_parts: parts
+      .filter((p) => p && typeof p.name === "string" && p.name.trim())
+      .map((p) => ({
+        name: p.name.trim(),
+        partNumber:
+          typeof p.partNumber === "string" && p.partNumber.trim()
+            ? p.partNumber.trim()
+            : undefined,
+        reason: typeof p.reason === "string" ? p.reason.trim() : "",
+        source: toSourceIndex(p.source),
+      })),
   };
 }
 
@@ -233,6 +284,9 @@ export function respond(decision: DecisionJSON, docs: MossDoc[]): DiagnosticTurn
   if (decision.recommendation?.source) {
     referenced.add(decision.recommendation.source);
   }
+  for (const p of decision.spare_parts) {
+    if (p.source) referenced.add(p.source);
+  }
   // If the model cited nothing, fall back to the top retrieved chunk so the
   // answer is still traceable to the manual.
   if (referenced.size === 0 && docs.length > 0) referenced.add(1);
@@ -243,7 +297,11 @@ export function respond(decision: DecisionJSON, docs: MossDoc[]): DiagnosticTurn
     .filter(Boolean)
     .map((d) => ({
       resourceTitle: d.metadata.resourceTitle ?? "Manual",
+      kind: typeof d.metadata.kind === "string" ? d.metadata.kind : null,
+      locator: locatorFor(d.metadata),
+      url: typeof d.metadata.url === "string" ? d.metadata.url : null,
       page: d.metadata.page != null ? Number(d.metadata.page) : null,
+      startSec: d.metadata.startSec != null ? Number(d.metadata.startSec) : null,
       excerpt: truncate(d.text, 320),
       score: d.score,
     }));
@@ -255,6 +313,7 @@ export function respond(decision: DecisionJSON, docs: MossDoc[]): DiagnosticTurn
       candidateCauses: decision.candidate_causes,
       questions: decision.questions,
       recommendation: decision.recommendation,
+      spareParts: decision.spare_parts,
       citations,
     },
   };

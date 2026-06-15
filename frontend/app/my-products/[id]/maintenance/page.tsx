@@ -3,7 +3,9 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/app/lib/prisma";
 import { getDemoUser } from "@/app/lib/user";
 import { getMaintenanceForProduct } from "@/app/lib/maintenance";
+import { computeWarranty, getRecallsForProduct } from "@/app/lib/warranty";
 import { ProductImage } from "@/app/components/ProductImage";
+import { WarrantyCard, RecallList } from "@/app/components/ProductAlerts";
 import { MaintenanceList, type MaintenanceItem } from "./MaintenanceList";
 
 export const dynamic = "force-dynamic";
@@ -18,14 +20,20 @@ export default async function MaintenancePage({
 
   // Ownership check + maintenance load run concurrently (independent given the
   // user id). The product must be in the user's inventory to have a service log.
-  const [inventory, views] = await Promise.all([
+  const [inventory, views, recalls] = await Promise.all([
     prisma.userInventory.findUnique({
       where: { userId_productId: { userId: user.id, productId: id } },
       include: { product: true },
     }),
     getMaintenanceForProduct(user.id, id),
+    getRecallsForProduct(id),
   ]);
   if (!inventory) notFound();
+
+  const warranty = computeWarranty(
+    inventory.purchasedAt,
+    inventory.product.warrantyMonths,
+  );
 
   const items: MaintenanceItem[] = views.map((v) => ({
     statusId: v.statusId,
@@ -92,7 +100,16 @@ export default async function MaintenancePage({
         </div>
       </div>
 
+      {/* Warranty & recall alerts */}
+      <div className="mt-8 space-y-4">
+        <WarrantyCard warranty={warranty} />
+        <RecallList recalls={recalls} />
+      </div>
+
       <div className="mt-8">
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+          Maintenance log
+        </h2>
         <MaintenanceList initial={items} />
       </div>
     </div>

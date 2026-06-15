@@ -1,12 +1,15 @@
 """Moss retrieval sidecar.
 
 A thin FastAPI service that hosts the (Python-only) `inferedge-moss` SDK and
-exposes two endpoints the Next.js app calls over HTTP:
+exposes the endpoints the Next.js app calls over HTTP:
 
-    POST /index/{product_id}   -> upsert chunks into Moss index "product-{id}"
-    POST /query/{product_id}   -> semantic/hybrid search over that index
+    POST /index/{product_id}   -> upsert chunks (tagged with productId) into the index
+    POST /query/{product_id}   -> semantic/hybrid search, filtered to that product
+    POST /delete/{product_id}  -> delete a product's chunks (optionally one resourceId)
 
-Convention (see CLAUDE.md): one Moss index per product, named `product-{productId}`.
+Convention (see CLAUDE.md): a single shared index (default `acme-catalog`) holds
+all products' chunks, each tagged with `productId` in metadata; queries/deletes
+filter by it.
 
 Run from backend/:  uv run uvicorn main:app --reload --port 8000
 """
@@ -70,6 +73,11 @@ class QueryBody(BaseModel):
     query: str
     top_k: int = 5
     alpha: float = 0.8  # 0=keyword-only, 1=semantic-only, 0.8=hybrid default
+
+
+class DeleteBody(BaseModel):
+    # Optional: scope the delete to a single resource within the product.
+    resourceId: str | None = None
 
 
 # ---- app ---------------------------------------------------------------------
@@ -178,4 +186,71 @@ async def query(product_id: str, body: QueryBody):
         "productId": product_id,
         "query": body.query,
         "docs": docs,
+    }
+
+
+@app.post("/delete/{product_id}")
+async def delete(product_id: str, body: DeleteBody | None = None):
+    """Delete a product's chunks from the shared index (optionally one resource).
+
+    The SDK deletes by doc id, so we first collect the ids whose metadata matches
+    `productId` (and `resourceId` when given): enumerate the index via get_docs,
+    with a filtered-query fallback in case get_docs does not return everything.
+    """
+    body = body or DeleteBody()
+    c = client()
+
+    # If the index was never created, there is nothing to delete.
+    if INDEX_NAME not in _loaded:
+        try:
+            await c.load_index(INDEX_NAME)
+            _loaded.add(INDEX_NAME)
+        except Exception:
+            return {"ok": True, "index": INDEX_NAME, "productId": product_id, "deleted": 0}
+
+    def matches(meta: dict[str, Any] | None) -> bool:
+        meta = meta or {}
+        if meta.get("productId") != product_id:
+            return False
+        if body.resourceId and meta.get("resourceId") != body.resourceId:
+            return False
+        return True
+
+    ids: list[str] = []
+    try:
+        docs = await c.get_docs(INDEX_NAME)
+        ids = [d.id for d in docs if matches(getattr(d, "metadata", {}) or {})]
+    except Exception:
+        ids = []
+
+    # Fallback: collect via a filtered query (top_k large enough for a manual).
+    if not ids:
+        conds: list[dict[str, Any]] = [
+            {"field": "productId", "condition": {"$eq": product_id}}
+        ]
+        if body.resourceId:
+            conds.append(
+                {"field": "resourceId", "condition": {"$eq": body.resourceId}}
+            )
+        try:
+            result = await c.query(
+                INDEX_NAME,
+                product_id,
+                QueryOptions(top_k=1000, alpha=0.5, filter={"$and": conds}),
+            )
+            ids = [d.id for d in result.docs]
+        except Exception:
+            ids = []
+
+    if ids:
+        await c.delete_docs(INDEX_NAME, ids)
+        # Reload so subsequent queries reflect the deletion.
+        await c.load_index(INDEX_NAME)
+
+    return {
+        "ok": True,
+        "index": INDEX_NAME,
+        "productId": product_id,
+        "resourceId": body.resourceId,
+        "deleted": len(ids),
     }

@@ -17,7 +17,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { name, category, description, imageUrl } = body ?? {};
+    const { name, category, description, imageUrl, warrantyMonths } = body ?? {};
 
     if (!name || !category) {
       return Response.json(
@@ -26,6 +26,7 @@ export async function POST(req: Request) {
       );
     }
 
+    const warranty = Number(warrantyMonths);
     const company = await getCompany();
     const product = await prisma.product.create({
       data: {
@@ -34,6 +35,8 @@ export async function POST(req: Request) {
         category: String(category),
         description: description ? String(description) : null,
         imageUrl: imageUrl ? String(imageUrl) : null,
+        warrantyMonths:
+          Number.isInteger(warranty) && warranty > 0 ? warranty : null,
       },
     });
 

@@ -1,12 +1,15 @@
 import { prisma } from "@/app/lib/prisma";
 import { Dashboard } from "@/app/components/Dashboard";
+import { MaintenanceManager } from "@/app/components/MaintenanceManager";
+import { WarrantyRecallManager } from "@/app/components/WarrantyRecallManager";
+import { ProductHealthPanel } from "@/app/components/ProductHealthPanel";
 
 export const dynamic = "force-dynamic";
 
 export default async function CompanyDashboard() {
   const products = await prisma.product.findMany({
     orderBy: { name: "asc" },
-    select: { id: true, name: true },
+    select: { id: true, name: true, warrantyMonths: true },
   });
 
   return (
@@ -20,6 +23,15 @@ export default async function CompanyDashboard() {
         </p>
       </div>
       <Dashboard products={products} />
+      <div className="mt-8">
+        <ProductHealthPanel products={products} />
+      </div>
+      <div className="mt-8">
+        <MaintenanceManager products={products} />
+      </div>
+      <div className="mt-8">
+        <WarrantyRecallManager products={products} />
+      </div>
     </div>
   );
 }
