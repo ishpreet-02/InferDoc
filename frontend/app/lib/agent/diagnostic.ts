@@ -39,6 +39,13 @@ export type Recommendation = {
   source?: number;
 };
 
+export type SparePart = {
+  name: string;
+  partNumber?: string;
+  reason?: string;
+  source?: number;
+};
+
 /** What gets stored in Message.citations and drives the readout UI. */
 export type Readout = {
   stage: Stage;
@@ -46,6 +53,7 @@ export type Readout = {
   questions: string[];
   recommendation: Recommendation | null;
   citations: Citation[];
+  spareParts?: SparePart[];
 };
 
 export type DiagnosticTurn = {
@@ -117,6 +125,7 @@ type DecisionJSON = {
   candidate_causes: CandidateCause[];
   questions: string[];
   recommendation: Recommendation | null;
+  spare_parts?: SparePart[];
 };
 
 const SYSTEM_PROMPT = `You are Musk, an expert diagnostic technician for {PRODUCT} ({CATEGORY}).
@@ -130,6 +139,7 @@ You run an ITERATIVE troubleshooting loop — you are NOT a search engine. Your 
    generic questions like "have you tried restarting".
 4. Once the answers (or symptoms) point clearly to one cause, STOP asking and
    recommend the specific fix from the manual, citing the source.
+5. If the customer might need spare parts to perform the fix, list them from the manual excerpts in "spare_parts".
 
 PHOTO EVIDENCE: if the symptom history contains a "[Customer shared a photo. Visual
 analysis: …]" note, treat it as first-hand observed evidence. In your reply, briefly
@@ -143,7 +153,7 @@ Pacing: prefer to RECOMMEND by the 3rd customer turn. If the customer has alread
 answered your discriminating questions, RECOMMEND rather than asking more.
 
 Cite manual excerpts by their bracket number via the "source" field (the integer,
-e.g. 1). Every candidate cause and the recommendation should cite a source when
+e.g. 1). Every candidate cause, recommendation, and spare part should cite a source when
 one supports it. Do not invent part numbers, pages, or fixes not in the excerpts.
 
 Return ONLY a JSON object with EXACTLY this shape:
@@ -152,7 +162,8 @@ Return ONLY a JSON object with EXACTLY this shape:
   "reply": "what to say to the customer (1-3 sentences; if QUESTIONING, briefly frame the questions)",
   "candidate_causes": [{ "cause": "string", "confidence": 0.0-1.0, "source": <int or omit> }],
   "questions": ["string", ...],   // 2-4 items when stage=QUESTIONING, else []
-  "recommendation": { "fix": "string", "source": <int or omit> } | null
+  "recommendation": { "fix": "string", "source": <int or omit> } | null,
+  "spare_parts": [{ "name": "string", "partNumber": "string (optional)", "reason": "string (optional)", "source": <int or omit> }] // empty array if none
 }
 Rules: when stage="QUESTIONING", "questions" has 2-4 items and "recommendation" is null.
 When stage="RECOMMENDING", "questions" is [] and "recommendation" is set.`;
@@ -195,6 +206,7 @@ function normalizeDecision(d: DecisionJSON): DecisionJSON {
   const stage: Stage = d.stage === "RECOMMENDING" ? "RECOMMENDING" : "QUESTIONING";
   const causes = Array.isArray(d.candidate_causes) ? d.candidate_causes : [];
   const questions = Array.isArray(d.questions) ? d.questions.filter(Boolean) : [];
+  const parts = Array.isArray(d.spare_parts) ? d.spare_parts : [];
 
   return {
     stage,
@@ -215,6 +227,14 @@ function normalizeDecision(d: DecisionJSON): DecisionJSON {
             source: toSourceIndex(d.recommendation.source),
           }
         : null,
+    spare_parts: parts
+      .filter((p) => p && typeof p.name === "string")
+      .map((p) => ({
+        name: p.name,
+        partNumber: p.partNumber ? String(p.partNumber) : undefined,
+        reason: p.reason ? String(p.reason) : undefined,
+        source: toSourceIndex(p.source),
+      })),
   };
 }
 
@@ -232,6 +252,10 @@ export function respond(decision: DecisionJSON, docs: MossDoc[]): DiagnosticTurn
   }
   if (decision.recommendation?.source) {
     referenced.add(decision.recommendation.source);
+  }
+  const parts = decision.spare_parts ?? [];
+  for (const p of parts) {
+    if (p.source) referenced.add(p.source);
   }
   // If the model cited nothing, fall back to the top retrieved chunk so the
   // answer is still traceable to the manual.
@@ -256,6 +280,7 @@ export function respond(decision: DecisionJSON, docs: MossDoc[]): DiagnosticTurn
       questions: decision.questions,
       recommendation: decision.recommendation,
       citations,
+      spareParts: parts,
     },
   };
 }
