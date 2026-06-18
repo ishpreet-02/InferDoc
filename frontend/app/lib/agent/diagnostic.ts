@@ -24,6 +24,14 @@ export type Citation = {
   page: number | null;
   excerpt: string;
   score: number | null;
+  /** Resource kind — determines how the citation is rendered in the UI. */
+  kind?: string;
+  /** Public URL for the resource (video link, image URL, etc.). */
+  url?: string;
+  /** Start second for video citations. */
+  startSec?: number;
+  /** Human-readable locator string (e.g. "p.4", "3:25–4:10", "image"). */
+  locator?: string;
 };
 
 export type CandidateCause = {
@@ -270,6 +278,10 @@ export function respond(decision: DecisionJSON, docs: MossDoc[]): DiagnosticTurn
       page: d.metadata.page != null ? Number(d.metadata.page) : null,
       excerpt: truncate(d.text, 320),
       score: d.score,
+      kind: d.metadata.kind as string | undefined,
+      url: d.metadata.url as string | undefined,
+      startSec: d.metadata.startSec != null ? Number(d.metadata.startSec) : undefined,
+      locator: undefined, // resolved by the UI from page / startSec
     }));
 
   return {
